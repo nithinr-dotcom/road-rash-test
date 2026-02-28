@@ -63,8 +63,11 @@ export default function MultiplayerGameScreen({ socket, playerName, onGameOver }
     // ── Socket event handlers ─────────────────────────────────────────────────
 
     // Accumulate server snapshots into per-player ring buffers
-    sock.on('state_update', ({ ts, players }) => {
+    sock.on('state_update', ({ players }) => {
       const buf = stateBufferRef.current;
+      const recvTs = (typeof performance !== 'undefined' && performance.now)
+        ? performance.now()
+        : Date.now();
       const activeIds = new Set(players.map((p) => p.id));
       for (const id of [...buf.keys()]) {
         if (!activeIds.has(id)) buf.delete(id);
@@ -72,7 +75,7 @@ export default function MultiplayerGameScreen({ socket, playerName, onGameOver }
       for (const p of players) {
         if (!buf.has(p.id)) buf.set(p.id, []);
         const arr = buf.get(p.id);
-        arr.push({ ts, ...p });
+        arr.push({ ts: recvTs, ...p });
         // Keep only the last 30 snapshots (~1.5 s at 20 Hz)
         if (arr.length > 30) arr.shift();
       }
@@ -194,7 +197,9 @@ class MultiScene extends MainScene {
     super.tickGame(dt);
 
     // Interpolate remote players
-    const nowMs = Date.now() - this._interpDelay;
+    const nowMs = ((typeof performance !== 'undefined' && performance.now)
+      ? performance.now()
+      : Date.now()) - this._interpDelay;
     if (this._stateBuffer) {
       const myId = this._socket?.id;
       for (const [id, snapshots] of this._stateBuffer.entries()) {
@@ -202,6 +207,21 @@ class MultiScene extends MainScene {
         const interp = this._interpolate(snapshots, nowMs);
         if (interp) this._remotePlayers.set(id, interp);
         else this._remotePlayers.delete(id);
+      }
+
+      // Reconcile local player with authoritative server state
+      if (myId) {
+        const mine = this._interpolate(this._stateBuffer.get(myId), nowMs);
+        if (mine) {
+          this.playerX = MathUtils.lerp(this.playerX, mine.x, 0.55);
+          this.speed = MathUtils.lerp(this.speed, mine.speed, 0.55);
+          this.position = this._lerpWrapped(this.position, mine.z, this.trackLen, 0.55);
+          if (typeof mine.distance === 'number') {
+            this.distanceTravelled = mine.distance;
+          }
+          if (mine.finished) this.crossedFinish = true;
+          if (mine.eliminated) this.eliminatePlayer();
+        }
       }
     }
 
@@ -277,9 +297,19 @@ class MultiScene extends MainScene {
       x:        MathUtils.lerp(prev.x, next.x, t),
       z:        MathUtils.lerp(prev.z, next.z, t),
       speed:    MathUtils.lerp(prev.speed, next.speed, t),
+      distance: MathUtils.lerp(prev.distance ?? 0, next.distance ?? 0, t),
       input:    next.input,  // use the latest input for sprite selection
       finished: next.finished,
+      eliminated: next.eliminated,
     };
+  }
+
+  _lerpWrapped(from, to, max, t) {
+    let delta = to - from;
+    if (Math.abs(delta) > max / 2) {
+      delta += delta > 0 ? -max : max;
+    }
+    return MathUtils.wrapAround(from, delta * t, max);
   }
 
   // ── Ghost bike rendering ──────────────────────────────────────────────────
