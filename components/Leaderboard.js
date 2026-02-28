@@ -10,11 +10,15 @@ export default function Leaderboard({ board, phase }) {
       </h3>
       <ol className="leaderboard__list">
         {board.map((entry, i) => (
-          <li key={entry.playerId} className={`leaderboard__entry${entry.finished ? ' leaderboard__entry--done' : ''}`}>
+          <li
+            key={entry.playerId}
+            className={`leaderboard__entry${entry.finished ? ' leaderboard__entry--done' : ''}${entry.eliminated ? ' leaderboard__entry--out' : ''}`}
+          >
             <span className="lb-pos">{i + 1}</span>
             <span className="lb-name">{entry.name}</span>
             <span className="lb-dist">{formatDist(entry.distance)}</span>
             {entry.finished && <span className="lb-done">✓</span>}
+            {entry.eliminated && <span className="lb-done">OUT</span>}
           </li>
         ))}
       </ol>

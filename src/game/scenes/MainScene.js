@@ -96,6 +96,14 @@ export default class MainScene extends Phaser.Scene {
     this.rank              = 1;
     this.kickLeft          = false;
     this.kickRight         = false;
+    this.healthMax         = 100;
+    this.health            = this.healthMax;
+    this.isEliminated      = false;
+    this.nearMissCharge    = 0;
+    this.nitroActive       = false;
+    this.nitroMs           = 0;
+    this.nearMissMsgMs     = 0;
+    this._nearMissSeenAt   = new WeakMap();
 
     // Parallax scroll offsets, each wraps in [0, 1)
     this.skyOffset  = 0;
@@ -174,10 +182,19 @@ export default class MainScene extends Phaser.Scene {
   // ─── Physics update ────────────────────────────────────────────────────────
 
   tickGame(dt) {
-    if (this.crossedFinish) {
+    if (this.crossedFinish || this.isEliminated) {
       this.speed = 0;
       return;
     }
+
+    if (this.nitroActive) {
+      this.nitroMs -= dt * 1000;
+      if (this.nitroMs <= 0) {
+        this.nitroActive = false;
+        this.nitroMs = 0;
+      }
+    }
+    if (this.nearMissMsgMs > 0) this.nearMissMsgMs -= dt * 1000;
 
     const playerSeg    = findSegment(this.segments, this.position + this.playerZ, this.segLen);
     const speedPercent = this.speed / this.maxSpeed;
@@ -209,9 +226,12 @@ export default class MainScene extends Phaser.Scene {
     this.playerX -= lateralDx * speedPercent * playerSeg.curve * GAME_CONFIG.CENTRIFUGAL;
 
     // Throttle / brake / coast
+    const maxSpeedNow = this.nitroActive ? this.maxSpeed * 1.35 : this.maxSpeed;
+    const accelNow    = this.nitroActive ? this.accel * 1.5 : this.accel;
+
     if (throttle) {
       if (!this.sounds.bikeForward.isPlaying) this.sounds.bikeForward.play();
-      this.speed = MathUtils.accelerate(this.speed, this.accel, dt);
+      this.speed = MathUtils.accelerate(this.speed, accelNow, dt);
     } else {
       if (this.sounds.bikeForward.isPlaying) this.sounds.bikeForward.stop();
       const decelRate = brake ? this.braking : this.decel;
@@ -237,10 +257,11 @@ export default class MainScene extends Phaser.Scene {
 
     // Collision detection
     this.handleCollisions(playerSeg, offRoad);
+    this.checkNearMiss(playerSeg);
 
     // Clamp player to safe ranges
     this.playerX = MathUtils.clamp(this.playerX, -2,  2);
-    this.speed   = MathUtils.clamp(this.speed,    0, this.maxSpeed);
+    this.speed   = MathUtils.clamp(this.speed,    0, maxSpeedNow);
 
     this.rank = this.calcRank();
   }
@@ -257,6 +278,7 @@ export default class MainScene extends Phaser.Scene {
         const sprOff = spr.offset + sprW / 2 * (spr.offset > 0 ? 1 : -1);
         if (MathUtils.overlap(this.playerX, playerW, sprOff, sprW)) {
           this.playCrash();
+          this.applyDamage(15);
           this.speed    = this.maxSpeed / 5;
           this.position = MathUtils.wrapAround(playerSeg.p1.world.z, -this.playerZ, this.trackLen);
           break;
@@ -270,6 +292,7 @@ export default class MainScene extends Phaser.Scene {
       if (this.speed > car.speed &&
           MathUtils.overlap(this.playerX, playerW, car.offset, carW, 0.8)) {
         this.playCrash();
+        this.applyDamage(25);
         // Slow down to the car's speed; the faster we hit, the bigger the penalty
         this.speed    = car.speed * (car.speed / this.speed);
         this.position = MathUtils.wrapAround(car.z, -this.playerZ, this.trackLen);
@@ -293,12 +316,72 @@ export default class MainScene extends Phaser.Scene {
         }
 
         this.playCrash();
+        this.applyDamage(20);
         this.speed    = bike.speed * (bike.speed / this.speed);
         this.position = MathUtils.wrapAround(bike.z, -this.playerZ, this.trackLen);
         break;
       }
     }
   }
+
+  checkNearMiss(playerSeg) {
+    if (!playerSeg || this.isEliminated) return;
+    const playerW = SPRITES.PLAYER_STRAIGHT.w * SPRITES.SCALE;
+    const nowMs   = this.time.now;
+    const playerFrontZ = this.position + this.playerZ;
+
+    const tryNearMiss = (entity, offset, width, z, speed) => {
+      if (!entity || this.speed <= speed + 500) return;
+      const latGap = Math.abs(this.playerX - offset);
+      if (latGap > 0.52) return;
+      if (MathUtils.overlap(this.playerX, playerW, offset, width, 0.8)) return;
+
+      let dz = z - playerFrontZ;
+      if (dz < 0) dz += this.trackLen;
+      if (dz < 0 || dz > this.segLen * 1.25) return;
+
+      const seenAt = this._nearMissSeenAt.get(entity) ?? -999999;
+      if (nowMs - seenAt < 900) return;
+      this._nearMissSeenAt.set(entity, nowMs);
+      this.registerNearMiss();
+    };
+
+    for (const car of playerSeg.cars) {
+      tryNearMiss(car, car.offset, car.sprite.w * SPRITES.SCALE, car.z, car.speed);
+    }
+    for (const bike of playerSeg.bikes) {
+      tryNearMiss(bike, bike.offset, bike.sprite.w * SPRITES.SCALE, bike.z, bike.speed);
+    }
+  }
+
+  registerNearMiss() {
+    this.nearMissCharge += 1;
+    this.nearMissMsgMs = 800;
+    this.onNearMiss();
+    if (this.nearMissCharge >= 3) {
+      this.nearMissCharge = 0;
+      this.nitroActive = true;
+      this.nitroMs = 5000;
+      this.nearMissMsgMs = 1200;
+    }
+  }
+
+  applyDamage(amount) {
+    if (this.isEliminated) return;
+    this.health = Math.max(0, this.health - amount);
+    if (this.health <= 0) this.eliminatePlayer();
+  }
+
+  eliminatePlayer() {
+    if (this.isEliminated) return;
+    this.isEliminated = true;
+    this.speed = 0;
+    if (this.sounds?.bikeForward?.isPlaying) this.sounds.bikeForward.stop();
+    this.onEliminated();
+  }
+
+  onEliminated() {}
+  onNearMiss() {}
 
   // Play crash sound without overlapping
   playCrash() {
@@ -439,6 +522,7 @@ export default class MainScene extends Phaser.Scene {
     // ── HUD ───────────────────────────────────────────────────────────────
     this.drawSpeedometer();
     this.drawRank();
+    this.drawHealthAndNitro();
 
     // Countdown overlay: shown before the game starts, and briefly after GO!
     const showingCountdown = !this.gameStarted || this.goDisplayMs > 0;
@@ -447,7 +531,7 @@ export default class MainScene extends Phaser.Scene {
       this.drawCenteredText(label, W / 2, H / 2 - 60, '80px PerfectDark, sans-serif', 'black');
     }
 
-    if (this.crossedFinish && this.speed === 0) {
+    if ((this.crossedFinish && this.speed === 0) || this.isEliminated) {
       this.drawGameOver();
     }
   }
@@ -497,6 +581,41 @@ export default class MainScene extends Phaser.Scene {
     ctx.textAlign  = 'left'; // reset
   }
 
+  drawHealthAndNitro() {
+    const ctx = this.ctx;
+    const x = this.screenW - 320;
+    const y = 36;
+    const w = 260;
+    const h = 22;
+
+    ctx.fillStyle = '#111';
+    ctx.fillRect(x, y, w, h);
+    const hpPct = MathUtils.clamp(this.health / this.healthMax, 0, 1);
+    ctx.fillStyle = hpPct > 0.5 ? '#30c75a' : hpPct > 0.25 ? '#ffb020' : '#f04040';
+    ctx.fillRect(x, y, w * hpPct, h);
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(x, y, w, h);
+    ctx.fillStyle = '#fff';
+    ctx.font = '22px Bariol, sans-serif';
+    ctx.fillText(`HP ${Math.round(this.health)}`, x + 8, y + 18);
+
+    ctx.fillStyle = '#fff';
+    ctx.font = '24px Bariol, sans-serif';
+    ctx.fillText(`Near Miss: ${this.nearMissCharge}/3`, x, y + 56);
+
+    if (this.nitroActive) {
+      const sec = (this.nitroMs / 1000).toFixed(1);
+      ctx.fillStyle = '#00d2ff';
+      ctx.font = '28px PerfectDark, sans-serif';
+      ctx.fillText(`NITRO ${sec}s`, x, y + 88);
+    } else if (this.nearMissMsgMs > 0) {
+      ctx.fillStyle = '#ffd166';
+      ctx.font = '24px PerfectDark, sans-serif';
+      ctx.fillText('NEAR MISS!', x, y + 88);
+    }
+  }
+
   // Draw text horizontally and vertically centred around (cx, cy)
   drawCenteredText(text, cx, cy, font, color) {
     const ctx = this.ctx;
@@ -508,7 +627,8 @@ export default class MainScene extends Phaser.Scene {
   }
 
   drawGameOver() {
-    this.drawCenteredText('GAME OVER!', this.screenW / 2, this.screenH / 2,
+    const text = this.isEliminated ? 'BIKE DESTROYED!' : 'GAME OVER!';
+    this.drawCenteredText(text, this.screenW / 2, this.screenH / 2,
                           '80px PerfectDark, sans-serif', '#ff2222');
 
     // Notify React once after a short pause so the player can read the message

@@ -49,6 +49,14 @@ io.on('connection', (socket) => {
     rooms.handleInput(socket, input);
   });
 
+  socket.on('player_eliminated', () => {
+    rooms.handleElimination(socket);
+  });
+
+  socket.on('near_miss', () => {
+    rooms.handleNearMiss(socket);
+  });
+
   socket.on('disconnect', () => {
     console.log(`[socket] disconnected: ${socket.id}`);
     rooms.leaveRoom(socket);

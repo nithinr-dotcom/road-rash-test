@@ -55,6 +55,14 @@ app.prepare().then(() => {
       rooms.handleInput(socket, input);
     });
 
+    socket.on('player_eliminated', () => {
+      rooms.handleElimination(socket);
+    });
+
+    socket.on('near_miss', () => {
+      rooms.handleNearMiss(socket);
+    });
+
     // ── Disconnect ────────────────────────────────────────────────────────
     socket.on('disconnect', () => {
       console.log(`[socket] disconnected: ${socket.id}`);

@@ -168,6 +168,8 @@ class MultiScene extends MainScene {
     this._stateBuffer  = mpConfig.stateBuffer ?? null;
     this._interpDelay  = mpConfig.interpDelay ?? 100;
     this._raceOver     = false;
+    this._eliminationSent = false;
+    this._remoteNearMissSeenAt = new Map();
   }
 
   create() {
@@ -201,6 +203,43 @@ class MultiScene extends MainScene {
         if (interp) this._remotePlayers.set(id, interp);
         else this._remotePlayers.delete(id);
       }
+    }
+
+    this._checkRemoteNearMisses();
+  }
+
+  onEliminated() {
+    if (this._eliminationSent) return;
+    this._eliminationSent = true;
+    this._socket?.emit('player_eliminated');
+  }
+
+  onNearMiss() {
+    this._socket?.emit('near_miss');
+  }
+
+  _checkRemoteNearMisses() {
+    if (!this._remotePlayers.size) return;
+
+    const playerW = SPRITES.PLAYER_STRAIGHT.w * SPRITES.SCALE;
+    const nowMs = this.time.now;
+    const playerFrontZ = this.position + this.playerZ;
+
+    for (const [id, remote] of this._remotePlayers.entries()) {
+      if (!remote) continue;
+      const latGap = Math.abs(this.playerX - remote.x);
+      if (latGap > 0.55) continue;
+      if (MathUtils.overlap(this.playerX, playerW, remote.x, playerW, 0.8)) continue;
+
+      let dz = remote.z - playerFrontZ;
+      if (dz < 0) dz += this.trackLen;
+      if (dz < 0 || dz > this.segLen * 1.2) continue;
+      if (this.speed <= (remote.speed ?? 0) + 500) continue;
+
+      const seenAt = this._remoteNearMissSeenAt.get(id) ?? -999999;
+      if (nowMs - seenAt < 900) continue;
+      this._remoteNearMissSeenAt.set(id, nowMs);
+      this.registerNearMiss();
     }
   }
 

@@ -316,11 +316,13 @@ canvas {
 }
 
 .leaderboard__entry--done { color: #7eff7e; }
+.leaderboard__entry--out  { color: #ff7e7e; }
 
 .lb-pos  { font-family: 'PerfectDark', sans-serif; color: #FF7373; width: 18px; }
 .lb-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100px; }
 .lb-dist { font-size: 12px; color: #888; }
 .lb-done { font-size: 13px; color: #7eff7e; }
+.leaderboard__entry--out .lb-done { color: #ff7e7e; }
 
 /* ── Multiplayer game-over overlay ───────────────────────────────────────────── */
 
