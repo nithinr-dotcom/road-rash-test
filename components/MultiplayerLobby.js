@@ -20,6 +20,7 @@ export default function MultiplayerLobby({ onRaceStart, onBack }) {
   const [error,      setError]      = useState('');
   const [roomId,     setRoomId]     = useState('');
   const socketRef = useRef(null);
+  const handoffToGameRef = useRef(false);
 
   // Build and store socket; cleaned up on unmount
   useEffect(() => {
@@ -68,6 +69,7 @@ export default function MultiplayerLobby({ onRaceStart, onBack }) {
     socket.on('race_start', () => {
       setStatus('racing');
       setCountdown(null);
+      handoffToGameRef.current = true;
       // Hand the socket to the game screen
       onRaceStart(socket, name);
     });
@@ -75,7 +77,11 @@ export default function MultiplayerLobby({ onRaceStart, onBack }) {
     socket.on('error', ({ message }) => setError(message));
     socket.on('disconnect', () => setStatus('disconnected'));
 
-    return () => { socket.disconnect(); };
+    return () => {
+      // Keep socket alive when moving from lobby -> game screen.
+      // Parent now owns this connection and passes it into MultiplayerGameScreen.
+      if (!handoffToGameRef.current) socket.disconnect();
+    };
   }, [nameSet]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Name entry ────────────────────────────────────────────────────────────
