@@ -227,6 +227,7 @@ export default function MultiplayerGameScreen({ socket, playerName, onGameOver }
       playerName,
       stateBuffer: stateBufferRef.current,
       interpDelay: INTERP_DELAY_MS,
+      netStatsRef,
     });
 
     const config = {
@@ -545,6 +546,7 @@ class MultiScene extends MainScene {
     this._playerName   = mpConfig.playerName ?? '';
     this._stateBuffer  = mpConfig.stateBuffer ?? null;
     this._interpDelay  = mpConfig.interpDelay ?? 100;
+    this._netStatsRef  = mpConfig.netStatsRef ?? null;
     this._raceOver     = false;
     this._eliminationSent = false;
     this._remoteNearMissSeenAt = new Map();
@@ -591,9 +593,11 @@ class MultiScene extends MainScene {
           const dx = Math.abs(this.playerX - mine.x);
           const dzRaw = Math.abs(this.position - mine.z);
           const dz = Math.min(dzRaw, this.trackLen - dzRaw);
-          const stats = netStatsRef.current;
-          stats.driftX = MathUtils.lerp(stats.driftX || 0, dx, 0.18);
-          stats.driftZ = MathUtils.lerp(stats.driftZ || 0, dz, 0.18);
+          const stats = this._netStatsRef?.current;
+          if (stats) {
+            stats.driftX = MathUtils.lerp(stats.driftX || 0, dx, 0.18);
+            stats.driftZ = MathUtils.lerp(stats.driftZ || 0, dz, 0.18);
+          }
           if (dx > 0.35) this.playerX = MathUtils.lerp(this.playerX, mine.x, 0.22);
           if (dz > 320) this.position = this._lerpWrapped(this.position, mine.z, this.trackLen, 0.18);
           if (Math.abs(this.speed - mine.speed) > 3500) {
