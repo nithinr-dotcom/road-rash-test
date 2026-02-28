@@ -71,6 +71,10 @@ app.prepare().then(() => {
       rooms.handleNearMiss(socket);
     });
 
+    socket.on('race_chat', ({ text }) => {
+      rooms.handleChat(socket, text);
+    });
+
     socket.on('voice_join', () => {
       const roomId = socket._roomId;
       if (!roomId) return;

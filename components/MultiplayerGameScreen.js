@@ -38,6 +38,8 @@ export default function MultiplayerGameScreen({ socket, playerName, onGameOver }
   const [micMuted, setMicMuted] = useState(false);
   const [voicePeers, setVoicePeers] = useState(0);
   const [voiceError, setVoiceError] = useState('');
+  const [chatMessages, setChatMessages] = useState([]);
+  const [chatText, setChatText] = useState('');
 
   // ── Buffer of server state snapshots for interpolation ─────────────────────
   // Map: playerId → Array<{ ts, x, z, speed, distance, input }>
@@ -45,6 +47,13 @@ export default function MultiplayerGameScreen({ socket, playerName, onGameOver }
 
   function updateVoicePeerCount() {
     setVoicePeers(peerConnsRef.current.size);
+  }
+
+  function pushChatMessage(msg) {
+    setChatMessages((prev) => {
+      const next = [...prev, msg];
+      return next.length > 60 ? next.slice(next.length - 60) : next;
+    });
   }
 
   function cleanupPeer(peerId) {
@@ -146,6 +155,14 @@ export default function MultiplayerGameScreen({ socket, playerName, onGameOver }
     }
   }
 
+  function sendChat() {
+    const sock = socketRef.current;
+    const text = chatText.trim();
+    if (!sock || !text) return;
+    sock.emit('race_chat', { text });
+    setChatText('');
+  }
+
   useEffect(() => {
     const sock = socketRef.current;
     if (!sock) return;
@@ -209,11 +226,22 @@ export default function MultiplayerGameScreen({ socket, playerName, onGameOver }
     sock.on('room_reset', () => {
       setPhase('racing');
       setBoard([]);
+      setChatMessages([]);
       stateBufferRef.current.clear();
       const currentScene = game.scene.getScene('MultiScene');
       if (currentScene) {
         currentScene._raceOver = false;
       }
+    });
+
+    sock.on('race_chat', (payload) => {
+      if (!payload) return;
+      pushChatMessage({
+        playerId: payload.playerId,
+        name: payload.name || 'Player',
+        text: payload.text || '',
+        ts: payload.ts || Date.now(),
+      });
     });
 
     sock.on('voice_peers', async ({ peers }) => {
@@ -285,6 +313,7 @@ export default function MultiplayerGameScreen({ socket, playerName, onGameOver }
       sock.off('leaderboard_update');
       sock.off('race_over');
       sock.off('room_reset');
+      sock.off('race_chat');
       sock.off('voice_peers');
       sock.off('voice_peer_joined');
       sock.off('voice_offer');
@@ -325,6 +354,30 @@ export default function MultiplayerGameScreen({ socket, playerName, onGameOver }
         )}
         <div className="mp-voice-meta">Voice peers: {voicePeers}</div>
         {voiceError && <div className="mp-voice-error">{voiceError}</div>}
+      </div>
+
+      <div className="mp-chat-panel">
+        <div className="mp-chat-title">RACE CHAT</div>
+        <div className="mp-chat-log">
+          {chatMessages.map((m, idx) => (
+            <div key={`${m.ts}-${idx}`} className="mp-chat-line">
+              <span className="mp-chat-name">{m.name}:</span> {m.text}
+            </div>
+          ))}
+        </div>
+        <div className="mp-chat-input-row">
+          <input
+            className="mp-chat-input"
+            value={chatText}
+            maxLength={180}
+            placeholder="Type message..."
+            onChange={(e) => setChatText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') sendChat();
+            }}
+          />
+          <button className="mp-chat-send" onClick={sendChat}>SEND</button>
+        </div>
       </div>
 
       {/* Race-over React overlay */}
