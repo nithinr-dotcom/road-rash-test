@@ -66,6 +66,11 @@ export default function MultiplayerLobby({ onRaceStart, onBack }) {
       setCountdown(value);
     });
 
+    socket.on('countdown_cancelled', () => {
+      setStatus('waiting');
+      setCountdown(null);
+    });
+
     socket.on('race_start', () => {
       setStatus('racing');
       setCountdown(null);
@@ -78,6 +83,16 @@ export default function MultiplayerLobby({ onRaceStart, onBack }) {
     socket.on('disconnect', () => setStatus('disconnected'));
 
     return () => {
+      socket.off('connect');
+      socket.off('room_joined');
+      socket.off('player_joined');
+      socket.off('player_left');
+      socket.off('countdown');
+      socket.off('countdown_cancelled');
+      socket.off('race_start');
+      socket.off('error');
+      socket.off('disconnect');
+
       // Keep socket alive when moving from lobby -> game screen.
       // Parent now owns this connection and passes it into MultiplayerGameScreen.
       if (!handoffToGameRef.current) socket.disconnect();
