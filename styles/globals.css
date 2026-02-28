@@ -353,3 +353,41 @@ canvas {
   border-radius: 6px;
   cursor:       pointer;
 }
+
+.mp-voice-panel {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  z-index: 11;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  min-width: 200px;
+}
+
+.mp-voice-btn {
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 6px;
+  background: #2d8bff;
+  color: #fff;
+  font-family: 'PerfectDark', sans-serif;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.mp-voice-meta {
+  margin-top: 8px;
+  font-family: 'Bariol', sans-serif;
+  font-size: 14px;
+  color: #ddd;
+}
+
+.mp-voice-error {
+  margin-top: 6px;
+  font-family: 'Bariol', sans-serif;
+  font-size: 13px;
+  color: #ff8e8e;
+}

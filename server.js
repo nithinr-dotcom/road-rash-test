@@ -43,6 +43,14 @@ app.prepare().then(() => {
   io.on('connection', (socket) => {
     console.log(`[socket] connected: ${socket.id}`);
 
+    const relayToPeer = (event, payload) => {
+      const roomId = socket._roomId;
+      if (!roomId || !payload?.to) return;
+      const peers = io.sockets.adapter.rooms.get(roomId);
+      if (!peers || !peers.has(payload.to)) return;
+      io.to(payload.to).emit(event, { from: socket.id, ...payload });
+    };
+
     // ── Room join ──────────────────────────────────────────────────────────
     // Payload: { playerName: string }
     socket.on('join_room', ({ playerName }) => {
@@ -63,8 +71,22 @@ app.prepare().then(() => {
       rooms.handleNearMiss(socket);
     });
 
+    socket.on('voice_join', () => {
+      const roomId = socket._roomId;
+      if (!roomId) return;
+      const roomSet = io.sockets.adapter.rooms.get(roomId) || new Set();
+      const peers = [...roomSet].filter((id) => id !== socket.id);
+      socket.emit('voice_peers', { peers });
+      socket.to(roomId).emit('voice_peer_joined', { peerId: socket.id });
+    });
+
+    socket.on('voice_offer', (payload) => relayToPeer('voice_offer', payload));
+    socket.on('voice_answer', (payload) => relayToPeer('voice_answer', payload));
+    socket.on('voice_ice', (payload) => relayToPeer('voice_ice', payload));
+
     // ── Disconnect ────────────────────────────────────────────────────────
     socket.on('disconnect', () => {
+      if (socket._roomId) socket.to(socket._roomId).emit('voice_peer_left', { peerId: socket.id });
       console.log(`[socket] disconnected: ${socket.id}`);
       rooms.leaveRoom(socket);
     });

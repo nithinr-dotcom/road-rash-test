@@ -18,20 +18,133 @@ const GAME_W          = 1280;
 const GAME_H          = 720;
 const INPUT_RATE_MS   = 50;    // send input every 50 ms (20 Hz)
 const INTERP_DELAY_MS = 100;   // buffer 100 ms of server states for interpolation
+const RTC_CONFIG      = {
+  iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+};
 
 export default function MultiplayerGameScreen({ socket, playerName, onGameOver }) {
   const containerRef   = useRef(null);
   const gameRef        = useRef(null);
   const socketRef      = useRef(socket);
   const inputTimerRef  = useRef(null);
+  const localStreamRef = useRef(null);
+  const peerConnsRef   = useRef(new Map()); // peerId -> RTCPeerConnection
+  const audioElsRef    = useRef(new Map()); // peerId -> HTMLAudioElement
 
   // Leaderboard displayed via React overlay
   const [board, setBoard] = useState([]);
   const [phase, setPhase] = useState('racing'); // 'racing' | 'finished'
+  const [voiceEnabled, setVoiceEnabled] = useState(false);
+  const [micMuted, setMicMuted] = useState(false);
+  const [voicePeers, setVoicePeers] = useState(0);
+  const [voiceError, setVoiceError] = useState('');
 
   // ── Buffer of server state snapshots for interpolation ─────────────────────
   // Map: playerId → Array<{ ts, x, z, speed, distance, input }>
   const stateBufferRef = useRef(new Map());
+
+  function updateVoicePeerCount() {
+    setVoicePeers(peerConnsRef.current.size);
+  }
+
+  function cleanupPeer(peerId) {
+    const pc = peerConnsRef.current.get(peerId);
+    if (pc) {
+      pc.onicecandidate = null;
+      pc.ontrack = null;
+      pc.onconnectionstatechange = null;
+      pc.close();
+      peerConnsRef.current.delete(peerId);
+    }
+
+    const audio = audioElsRef.current.get(peerId);
+    if (audio) {
+      audio.srcObject = null;
+      audio.remove();
+      audioElsRef.current.delete(peerId);
+    }
+    updateVoicePeerCount();
+  }
+
+  function cleanupVoice() {
+    for (const peerId of [...peerConnsRef.current.keys()]) cleanupPeer(peerId);
+    const stream = localStreamRef.current;
+    if (stream) {
+      for (const t of stream.getTracks()) t.stop();
+      localStreamRef.current = null;
+    }
+    setVoiceEnabled(false);
+    setMicMuted(false);
+  }
+
+  function ensurePeer(peerId, sock) {
+    let pc = peerConnsRef.current.get(peerId);
+    if (pc) return pc;
+
+    pc = new RTCPeerConnection(RTC_CONFIG);
+    peerConnsRef.current.set(peerId, pc);
+    updateVoicePeerCount();
+
+    const stream = localStreamRef.current;
+    if (stream) {
+      for (const track of stream.getTracks()) pc.addTrack(track, stream);
+    }
+
+    pc.onicecandidate = (e) => {
+      if (e.candidate) {
+        sock.emit('voice_ice', { to: peerId, candidate: e.candidate });
+      }
+    };
+
+    pc.ontrack = (e) => {
+      let audio = audioElsRef.current.get(peerId);
+      if (!audio) {
+        audio = document.createElement('audio');
+        audio.autoplay = true;
+        audio.playsInline = true;
+        audioElsRef.current.set(peerId, audio);
+        document.body.appendChild(audio);
+      }
+      audio.srcObject = e.streams[0];
+    };
+
+    pc.onconnectionstatechange = () => {
+      const st = pc.connectionState;
+      if (st === 'failed' || st === 'disconnected' || st === 'closed') cleanupPeer(peerId);
+    };
+
+    return pc;
+  }
+
+  async function createVoiceOffer(peerId, sock) {
+    const pc = ensurePeer(peerId, sock);
+    if (pc.signalingState !== 'stable') return;
+    const offer = await pc.createOffer({ offerToReceiveAudio: true });
+    await pc.setLocalDescription(offer);
+    sock.emit('voice_offer', { to: peerId, sdp: offer });
+  }
+
+  async function enableVoice() {
+    if (voiceEnabled) return;
+    const sock = socketRef.current;
+    if (!sock) return;
+    setVoiceError('');
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
+      localStreamRef.current = stream;
+      setVoiceEnabled(true);
+      setMicMuted(false);
+      sock.emit('voice_join');
+    } catch (err) {
+      setVoiceError('Microphone permission denied.');
+    }
+  }
 
   useEffect(() => {
     const sock = socketRef.current;
@@ -103,6 +216,53 @@ export default function MultiplayerGameScreen({ socket, playerName, onGameOver }
       }
     });
 
+    sock.on('voice_peers', async ({ peers }) => {
+      if (!localStreamRef.current) return;
+      for (const peerId of peers || []) {
+        if (!peerId || peerId === sock.id) continue;
+        try { await createVoiceOffer(peerId, sock); } catch (_) {}
+      }
+    });
+
+    sock.on('voice_peer_joined', ({ peerId }) => {
+      // Existing peers wait for the new joiner to initiate offers.
+      if (!peerId || peerId === sock.id) return;
+      updateVoicePeerCount();
+    });
+
+    sock.on('voice_offer', async ({ from, sdp }) => {
+      if (!from || !sdp || !localStreamRef.current) return;
+      try {
+        const pc = ensurePeer(from, sock);
+        await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        sock.emit('voice_answer', { to: from, sdp: answer });
+      } catch (_) {}
+    });
+
+    sock.on('voice_answer', async ({ from, sdp }) => {
+      if (!from || !sdp) return;
+      const pc = peerConnsRef.current.get(from);
+      if (!pc) return;
+      try {
+        await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+      } catch (_) {}
+    });
+
+    sock.on('voice_ice', async ({ from, candidate }) => {
+      if (!from || !candidate) return;
+      const pc = peerConnsRef.current.get(from);
+      if (!pc) return;
+      try {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+      } catch (_) {}
+    });
+
+    sock.on('voice_peer_left', ({ peerId }) => {
+      if (peerId) cleanupPeer(peerId);
+    });
+
     // ── Input sender (20 Hz) ─────────────────────────────────────────────────
     inputTimerRef.current = setInterval(() => {
       const scene = game.scene.getScene('MultiScene');
@@ -120,14 +280,29 @@ export default function MultiplayerGameScreen({ socket, playerName, onGameOver }
 
     return () => {
       clearInterval(inputTimerRef.current);
+      cleanupVoice();
       sock.off('state_update');
       sock.off('leaderboard_update');
       sock.off('race_over');
       sock.off('room_reset');
+      sock.off('voice_peers');
+      sock.off('voice_peer_joined');
+      sock.off('voice_offer');
+      sock.off('voice_answer');
+      sock.off('voice_ice');
+      sock.off('voice_peer_left');
       sock.disconnect();
       game.destroy(true);
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const stream = localStreamRef.current;
+    if (!stream) return;
+    for (const track of stream.getAudioTracks()) {
+      track.enabled = !micMuted;
+    }
+  }, [micMuted]);
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
@@ -136,6 +311,21 @@ export default function MultiplayerGameScreen({ socket, playerName, onGameOver }
 
       {/* Leaderboard overlay (top-right) */}
       <Leaderboard board={board} phase={phase} />
+
+      {/* Voice chat controls */}
+      <div className="mp-voice-panel">
+        {!voiceEnabled ? (
+          <button className="mp-voice-btn" onClick={enableVoice}>
+            ENABLE VOICE
+          </button>
+        ) : (
+          <button className="mp-voice-btn" onClick={() => setMicMuted((m) => !m)}>
+            {micMuted ? 'UNMUTE MIC' : 'MUTE MIC'}
+          </button>
+        )}
+        <div className="mp-voice-meta">Voice peers: {voicePeers}</div>
+        {voiceError && <div className="mp-voice-error">{voiceError}</div>}
+      </div>
 
       {/* Race-over React overlay */}
       {phase === 'finished' && (
@@ -219,6 +409,9 @@ class MultiScene extends MainScene {
           if (typeof mine.distance === 'number') {
             this.distanceTravelled = mine.distance;
           }
+          if (typeof mine.health === 'number') this.health = mine.health;
+          if (typeof mine.nitroActive === 'boolean') this.nitroActive = mine.nitroActive;
+          if (mine.fallen) this.speed = Math.min(this.speed, this.maxSpeed * 0.35);
           if (mine.finished) this.crossedFinish = true;
           if (mine.eliminated) this.eliminatePlayer();
         }
@@ -298,9 +491,12 @@ class MultiScene extends MainScene {
       z:        MathUtils.lerp(prev.z, next.z, t),
       speed:    MathUtils.lerp(prev.speed, next.speed, t),
       distance: MathUtils.lerp(prev.distance ?? 0, next.distance ?? 0, t),
+      health:   MathUtils.lerp(prev.health ?? 100, next.health ?? 100, t),
       input:    next.input,  // use the latest input for sprite selection
       finished: next.finished,
       eliminated: next.eliminated,
+      fallen:   next.fallen,
+      nitroActive: !!next.nitroActive,
     };
   }
 
