@@ -1,0 +1,353 @@
+/* ── Fonts ──────────────────────────────────────────────────────────────────── */
+
+@font-face {
+  font-family: 'PerfectDark';
+  src: url('/fonts/pdark.ttf') format('truetype');
+}
+
+@font-face {
+  font-family: 'Bariol';
+  src: url('/fonts/bariol_regular-webfont.woff2') format('woff2'),
+       url('/fonts/bariol_regular-webfont.woff')  format('woff');
+}
+
+/* ── Reset ──────────────────────────────────────────────────────────────────── */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body, #__next {
+  width:  100%;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+}
+
+/* Phaser injects a <canvas> — make sure it has no extra spacing */
+canvas {
+  display: block;
+}
+
+/* ── Viewport wrapper ───────────────────────────────────────────────────────── */
+
+.viewport-wrapper {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #000;
+}
+
+/* ── App root (game canvas area) ────────────────────────────────────────────── */
+
+.app-root {
+  width:  1280px;
+  height: 720px;
+  position: relative;
+  overflow: hidden;
+  flex-shrink: 0;
+  transform-origin: center center;
+}
+
+/* ── Menu screen ────────────────────────────────────────────────────────────── */
+
+.menu-screen {
+  width:  100%;
+  height: 100%;
+  background: url('/images/roadrash.png') no-repeat center center / cover;
+  position: relative;
+}
+
+.menu-screen .start-btn {
+  position: absolute;
+  top:   100px;
+  right: 100px;
+  padding:     10px 20px;
+  font-size:   22px;
+  font-family: 'PerfectDark', sans-serif;
+  color:            #fff;
+  background-color: #FF7373;
+  box-shadow:  0 5px 0 0 #CE4646;
+  border:       none;
+  border-radius: 5px;
+  outline:      none;
+  cursor:       pointer;
+}
+
+.menu-screen .start-btn:active {
+  transform:  translateY(5px);
+  box-shadow: 0 1px 0 0 #CE4646;
+}
+
+/* ── Game screen ────────────────────────────────────────────────────────────── */
+
+.game-screen {
+  width:  100%;
+  height: 100%;
+}
+
+/* ── Game-over overlay ──────────────────────────────────────────────────────── */
+
+.gameover-screen {
+  width:  100%;
+  height: 100%;
+  display:         flex;
+  flex-direction:  column;
+  align-items:     center;
+  justify-content: center;
+  gap:        24px;
+  background: #000;
+}
+
+.gameover-screen h1 {
+  font-size:   80px;
+  color:       #ff4444;
+  font-family: 'PerfectDark', sans-serif;
+}
+
+.gameover-screen button {
+  padding:     12px 36px;
+  font-size:   26px;
+  font-family: 'PerfectDark', sans-serif;
+  color:            #fff;
+  background-color: #FF7373;
+  box-shadow:  0 5px 0 0 #CE4646;
+  border:       none;
+  border-radius: 5px;
+  cursor:       pointer;
+}
+
+.gameover-screen button:hover  { background-color: #e05555; }
+.gameover-screen button:active { transform: translateY(5px); box-shadow: none; }
+
+/* ── Mode selection ──────────────────────────────────────────────────────────── */
+
+.mode-select-screen {
+  width:  100%;
+  height: 100%;
+  display:         flex;
+  flex-direction:  column;
+  align-items:     center;
+  justify-content: center;
+  gap:        48px;
+  background: url('/images/roadrash.png') no-repeat center center / cover;
+}
+
+.mode-title {
+  font-size:   72px;
+  font-family: 'PerfectDark', sans-serif;
+  color:       #fff;
+  text-shadow: 0 4px 12px rgba(0,0,0,0.8);
+}
+
+.mode-buttons {
+  display: flex;
+  gap:     48px;
+}
+
+.mode-btn {
+  display:        flex;
+  flex-direction: column;
+  align-items:    center;
+  gap:            10px;
+  padding:        32px 48px;
+  background:     rgba(0,0,0,0.7);
+  border:         3px solid #FF7373;
+  border-radius:  12px;
+  cursor:         pointer;
+  transition:     transform 0.1s, border-color 0.2s;
+  color:          #fff;
+}
+
+.mode-btn:hover  { border-color: #fff; transform: translateY(-4px); }
+.mode-btn:active { transform: translateY(2px); }
+
+.mode-btn__icon  { font-size:   52px; }
+.mode-btn__label { font-size:   28px; font-family: 'PerfectDark', sans-serif; }
+.mode-btn__sub   { font-size:   16px; color: #aaa; font-family: 'Bariol', sans-serif; }
+
+/* ── Multiplayer lobby ───────────────────────────────────────────────────────── */
+
+.lobby-screen {
+  width:  100%;
+  height: 100%;
+  display:         flex;
+  flex-direction:  column;
+  align-items:     center;
+  justify-content: center;
+  gap:        28px;
+  background: rgba(0,0,0,0.92);
+  position:   relative;
+}
+
+.lobby-back {
+  position:    absolute;
+  top:         24px;
+  left:        24px;
+  background:  transparent;
+  border:      2px solid #666;
+  color:       #ccc;
+  font-family: 'PerfectDark', sans-serif;
+  font-size:   18px;
+  padding:     8px 18px;
+  border-radius: 6px;
+  cursor:      pointer;
+}
+.lobby-back:hover { border-color: #fff; color: #fff; }
+
+.lobby-title {
+  font-size:   60px;
+  font-family: 'PerfectDark', sans-serif;
+  color:       #FF7373;
+}
+
+.lobby-room-id {
+  font-size:   14px;
+  color:       #555;
+  font-family: monospace;
+}
+
+.lobby-name-form {
+  display:    flex;
+  gap:        16px;
+  align-items: center;
+}
+
+.lobby-input {
+  font-size:    22px;
+  padding:      10px 18px;
+  border:       2px solid #FF7373;
+  border-radius: 6px;
+  background:   #111;
+  color:        #fff;
+  font-family:  'Bariol', sans-serif;
+  outline:      none;
+}
+
+.lobby-btn {
+  font-size:   22px;
+  padding:     10px 28px;
+  font-family: 'PerfectDark', sans-serif;
+  color:            #fff;
+  background-color: #FF7373;
+  border:       none;
+  border-radius: 6px;
+  cursor:       pointer;
+}
+.lobby-btn:disabled { background: #555; cursor: not-allowed; }
+
+.lobby-players {
+  display:        flex;
+  flex-direction: column;
+  gap:            10px;
+  min-width:      320px;
+}
+
+.lobby-player {
+  display:      flex;
+  align-items:  center;
+  gap:          14px;
+  background:   #1a1a1a;
+  border:       1px solid #333;
+  border-radius: 6px;
+  padding:      10px 18px;
+  font-family:  'Bariol', sans-serif;
+  color:        #fff;
+  font-size:    20px;
+}
+
+.lobby-player--empty { color: #444; border-style: dashed; }
+.lobby-player__num   { font-family: 'PerfectDark', sans-serif; color: #FF7373; width: 24px; }
+.lobby-player__name  { flex: 1; }
+.lobby-player__you   { font-size: 13px; color: #aaa; }
+
+.lobby-status { font-family: 'Bariol', sans-serif; color: #aaa; font-size: 20px; }
+.lobby-error  { color: #f55; font-family: 'Bariol', sans-serif; }
+
+.lobby-countdown {
+  font-size:   100px;
+  font-family: 'PerfectDark', sans-serif;
+  color:       #FF7373;
+  line-height: 1;
+}
+
+/* ── Leaderboard overlay ─────────────────────────────────────────────────────── */
+
+.leaderboard {
+  position:     absolute;
+  top:          12px;
+  right:        12px;
+  background:   rgba(0,0,0,0.72);
+  border:       1px solid rgba(255,255,255,0.15);
+  border-radius: 8px;
+  padding:      12px 16px;
+  min-width:    220px;
+  pointer-events: none;
+  z-index:      10;
+}
+
+.leaderboard__title {
+  font-family: 'PerfectDark', sans-serif;
+  font-size:   14px;
+  color:       #FF7373;
+  margin-bottom: 8px;
+  text-align:  center;
+  letter-spacing: 2px;
+}
+
+.leaderboard__list {
+  list-style: none;
+  display:    flex;
+  flex-direction: column;
+  gap:        6px;
+}
+
+.leaderboard__entry {
+  display:     flex;
+  align-items: center;
+  gap:         8px;
+  font-family: 'Bariol', sans-serif;
+  font-size:   15px;
+  color:       #ddd;
+}
+
+.leaderboard__entry--done { color: #7eff7e; }
+
+.lb-pos  { font-family: 'PerfectDark', sans-serif; color: #FF7373; width: 18px; }
+.lb-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100px; }
+.lb-dist { font-size: 12px; color: #888; }
+.lb-done { font-size: 13px; color: #7eff7e; }
+
+/* ── Multiplayer game-over overlay ───────────────────────────────────────────── */
+
+.mp-gameover-overlay {
+  position:        absolute;
+  inset:           0;
+  display:         flex;
+  flex-direction:  column;
+  align-items:     center;
+  justify-content: center;
+  gap:             24px;
+  background:      rgba(0,0,0,0.75);
+}
+
+.mp-gameover-overlay h2 {
+  font-size:   64px;
+  font-family: 'PerfectDark', sans-serif;
+  color:       #FF7373;
+}
+
+.mp-gameover-overlay button {
+  font-size:   24px;
+  padding:     12px 36px;
+  font-family: 'PerfectDark', sans-serif;
+  color:            #fff;
+  background-color: #FF7373;
+  border:       none;
+  border-radius: 6px;
+  cursor:       pointer;
+}
