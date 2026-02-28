@@ -35,8 +35,17 @@ export default function MultiplayerGameScreen({ socket, playerName, onGameOver }
 
   useEffect(() => {
     const sock = socketRef.current;
+    if (!sock) return;
+    stateBufferRef.current.clear();
 
     // ── Mount Phaser ─────────────────────────────────────────────────────────
+    const scene = new MultiScene({
+      socket:      sock,
+      playerName,
+      stateBuffer: stateBufferRef.current,
+      interpDelay: INTERP_DELAY_MS,
+    });
+
     const config = {
       type:              Phaser.CANVAS,
       width:             GAME_W,
@@ -45,28 +54,21 @@ export default function MultiplayerGameScreen({ socket, playerName, onGameOver }
       backgroundColor:   '#72D7EE',
       clearBeforeRender: false,
       audio:             { disableWebAudio: false },
-      scene:             [MultiScene],
+      scene:             [scene],
     };
 
     const game = new Phaser.Game(config);
     gameRef.current = game;
-
-    // Pass multiplayer config into Phaser registry
-    game.events.once('ready', () => {
-      game.registry.set('onGameOver',     onGameOver);
-      game.registry.set('socket',         sock);
-      game.registry.set('playerName',     playerName);
-      game.registry.set('stateBuffer',    stateBufferRef.current);
-      game.registry.set('setBoard',       setBoard);
-      game.registry.set('setPhase',       setPhase);
-      game.registry.set('interpDelayMs',  INTERP_DELAY_MS);
-    });
 
     // ── Socket event handlers ─────────────────────────────────────────────────
 
     // Accumulate server snapshots into per-player ring buffers
     sock.on('state_update', ({ ts, players }) => {
       const buf = stateBufferRef.current;
+      const activeIds = new Set(players.map((p) => p.id));
+      for (const id of [...buf.keys()]) {
+        if (!activeIds.has(id)) buf.delete(id);
+      }
       for (const p of players) {
         if (!buf.has(p.id)) buf.set(p.id, []);
         const arr = buf.get(p.id);
@@ -81,9 +83,20 @@ export default function MultiplayerGameScreen({ socket, playerName, onGameOver }
     sock.on('race_over', ({ board: b }) => {
       setBoard(b);
       setPhase('finished');
-      // Tell Phaser to stop physics (it will also show game-over canvas text)
-      if (gameRef.current) {
-        gameRef.current.registry.set('raceOver', true);
+      const currentScene = game.scene.getScene('MultiScene');
+      if (currentScene) {
+        currentScene._raceOver = true;
+        currentScene.speed = 0;
+      }
+    });
+
+    sock.on('room_reset', () => {
+      setPhase('racing');
+      setBoard([]);
+      stateBufferRef.current.clear();
+      const currentScene = game.scene.getScene('MultiScene');
+      if (currentScene) {
+        currentScene._raceOver = false;
       }
     });
 
@@ -107,6 +120,8 @@ export default function MultiplayerGameScreen({ socket, playerName, onGameOver }
       sock.off('state_update');
       sock.off('leaderboard_update');
       sock.off('race_over');
+      sock.off('room_reset');
+      sock.disconnect();
       game.destroy(true);
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -145,18 +160,21 @@ import Renderer  from '../src/game/Renderer.js';
 import { findSegment } from '../src/game/RoadBuilder.js';
 
 class MultiScene extends MainScene {
-  constructor() {
+  constructor(mpConfig = {}) {
     // Pass unique key to Phaser so it doesn't clash with 'MainScene'
     super({ key: 'MultiScene' });
+    this._socket       = mpConfig.socket ?? null;
+    this._playerName   = mpConfig.playerName ?? '';
+    this._stateBuffer  = mpConfig.stateBuffer ?? null;
+    this._interpDelay  = mpConfig.interpDelay ?? 100;
+    this._raceOver     = false;
   }
 
   create() {
     super.create();
-
-    // Grab multiplayer references from registry
-    this._socket       = this.registry.get('socket');
-    this._stateBuffer  = this.registry.get('stateBuffer');
-    this._interpDelay  = this.registry.get('interpDelayMs') ?? 100;
+    this.gameStarted = true;
+    this.countdown = 0;
+    this.goDisplayMs = 0;
 
     // Map: playerId → interpolated render state
     this._remotePlayers = new Map();
@@ -168,6 +186,8 @@ class MultiScene extends MainScene {
 
   // Override: apply server position to local player, draw remote ghosts
   tickGame(dt) {
+    if (this._raceOver) return;
+
     // Run local physics (input, speed, position) exactly as single-player
     super.tickGame(dt);
 
@@ -179,6 +199,7 @@ class MultiScene extends MainScene {
         if (id === myId) continue; // skip self — we have local physics
         const interp = this._interpolate(snapshots, nowMs);
         if (interp) this._remotePlayers.set(id, interp);
+        else this._remotePlayers.delete(id);
       }
     }
   }

@@ -19,8 +19,8 @@ import { createCars, createBikes, updateCars, updateBikes } from '../VehicleMana
 
 export default class MainScene extends Phaser.Scene {
 
-  constructor() {
-    super({ key: 'MainScene' });
+  constructor(sceneConfig = { key: 'MainScene' }) {
+    super(sceneConfig);
   }
 
   // ─── Asset loading ─────────────────────────────────────────────────────────
