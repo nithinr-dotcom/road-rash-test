@@ -572,6 +572,48 @@ canvas {
   cursor:       pointer;
 }
 
+.mp-final-board {
+  width: min(680px, 86%);
+  max-height: 320px;
+  overflow-y: auto;
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 10px;
+  background: rgba(8,8,8,0.65);
+  padding: 10px 12px;
+}
+
+.mp-final-row {
+  display: grid;
+  grid-template-columns: 72px 1fr 140px;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 4px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+
+.mp-final-row:last-child {
+  border-bottom: none;
+}
+
+.mp-final-pos {
+  color: #8dc0ff;
+  font-family: 'PerfectDark', sans-serif;
+  font-size: 18px;
+}
+
+.mp-final-name {
+  color: #fff;
+  font-family: 'Bariol', sans-serif;
+  font-size: 19px;
+}
+
+.mp-final-metric {
+  color: #d8d8d8;
+  font-family: 'Bariol', sans-serif;
+  font-size: 16px;
+  text-align: right;
+}
+
 .mp-voice-panel {
   position: absolute;
   top: 14px;

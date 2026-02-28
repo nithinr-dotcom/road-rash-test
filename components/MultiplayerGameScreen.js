@@ -55,6 +55,7 @@ export default function MultiplayerGameScreen({ socket, playerName, onGameOver }
     driftZ: 0,
   });
   const [voicePeerStates, setVoicePeerStates] = useState({});
+  const phaseRef = useRef('racing');
 
   // ── Buffer of server state snapshots for interpolation ─────────────────────
   // Map: playerId → Array<{ ts, x, z, speed, distance, input }>
@@ -276,7 +277,9 @@ export default function MultiplayerGameScreen({ socket, playerName, onGameOver }
       }
     });
 
-    sock.on('leaderboard_update', ({ board: b }) => setBoard(b));
+    sock.on('leaderboard_update', ({ board: b }) => {
+      if (phaseRef.current !== 'finished') setBoard(b);
+    });
 
     sock.on('race_over', ({ board: b }) => {
       setBoard(b);
@@ -289,6 +292,7 @@ export default function MultiplayerGameScreen({ socket, playerName, onGameOver }
     });
 
     sock.on('room_reset', () => {
+      if (phaseRef.current === 'finished') return;
       setPhase('racing');
       setBoard([]);
       setChatMessages([]);
@@ -439,6 +443,10 @@ export default function MultiplayerGameScreen({ socket, playerName, onGameOver }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
+    phaseRef.current = phase;
+  }, [phase]);
+
+  useEffect(() => {
     const stream = localStreamRef.current;
     if (!stream) return;
     for (const track of stream.getAudioTracks()) {
@@ -517,6 +525,19 @@ export default function MultiplayerGameScreen({ socket, playerName, onGameOver }
       {phase === 'finished' && (
         <div className="mp-gameover-overlay">
           <h2>RACE FINISHED!</h2>
+          {board?.length > 0 && (
+            <div className="mp-final-board">
+              {board.map((entry, idx) => (
+                <div key={entry.playerId} className="mp-final-row">
+                  <span className="mp-final-pos">#{idx + 1}</span>
+                  <span className="mp-final-name">{entry.name}</span>
+                  <span className="mp-final-metric">
+                    {entry.finished ? 'FINISHED' : entry.eliminated ? 'OUT' : `${Math.round(entry.distance || 0)}m`}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
           <button onClick={onGameOver}>BACK TO MENU</button>
         </div>
       )}
@@ -598,10 +619,12 @@ class MultiScene extends MainScene {
             stats.driftX = MathUtils.lerp(stats.driftX || 0, dx, 0.18);
             stats.driftZ = MathUtils.lerp(stats.driftZ || 0, dz, 0.18);
           }
-          if (dx > 0.35) this.playerX = MathUtils.lerp(this.playerX, mine.x, 0.22);
-          if (dz > 320) this.position = this._lerpWrapped(this.position, mine.z, this.trackLen, 0.18);
+          this.playerX = MathUtils.lerp(this.playerX, mine.x, dx > 0.35 ? 0.22 : 0.06);
+          this.position = this._lerpWrapped(this.position, mine.z, this.trackLen, dz > 320 ? 0.18 : 0.05);
           if (Math.abs(this.speed - mine.speed) > 3500) {
             this.speed = MathUtils.lerp(this.speed, mine.speed, 0.22);
+          } else {
+            this.speed = MathUtils.lerp(this.speed, mine.speed, 0.05);
           }
           if (typeof mine.distance === 'number') {
             this.distanceTravelled = Math.max(this.distanceTravelled, mine.distance);

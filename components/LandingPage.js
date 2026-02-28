@@ -4,7 +4,7 @@ export default function LandingPage({ onStart }) {
       <div className="landing-bg-grid" />
       <div className="landing-content">
         <p className="landing-kicker">MULTIPLAYER ARCADE RACING</p>
-        <h1 className="landing-title">ROAD RASH</h1>
+        <h1 className="landing-title">STREET HEAT</h1>
         <p className="landing-subtitle">
           Race, kick rivals, use near-miss nitro, and fight for the top spot.
         </p>
