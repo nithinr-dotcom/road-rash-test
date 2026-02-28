@@ -7,9 +7,20 @@
 
 const { createServer } = require('http');
 const { parse }        = require('url');
+const os               = require('os');
 const next             = require('next');
 const { Server }       = require('socket.io');
 const RoomManager      = require('./lib/RoomManager');
+
+/** Return the first non-loopback IPv4 address on the machine. */
+function getLocalIP() {
+  for (const ifaces of Object.values(os.networkInterfaces())) {
+    for (const iface of ifaces) {
+      if (iface.family === 'IPv4' && !iface.internal) return iface.address;
+    }
+  }
+  return 'localhost';
+}
 
 const dev  = process.env.NODE_ENV !== 'production';
 const port = parseInt(process.env.PORT || '3000', 10);
@@ -51,7 +62,11 @@ app.prepare().then(() => {
     });
   });
 
-  httpServer.listen(port, () => {
-    console.log(`> Ready on http://localhost:${port} [${dev ? 'development' : 'production'}]`);
+  // Listen on 0.0.0.0 so LAN peers can reach the server
+  httpServer.listen(port, '0.0.0.0', () => {
+    const lan = getLocalIP();
+    console.log(`\n  ▲ Road Rash – ${dev ? 'development' : 'production'}\n`);
+    console.log(`  Local:   http://localhost:${port}`);
+    console.log(`  Network: http://${lan}:${port}  ← share this with others on your Wi-Fi\n`);
   });
 });

@@ -27,8 +27,15 @@ export default function MultiplayerLobby({ onRaceStart, onBack }) {
 
     setStatus('connecting');
 
-    // Connect to the same origin (custom server handles upgrade)
-    const socket = io({ path: '/socket.io', transports: ['websocket', 'polling'] });
+    // In production (Vercel) connect to the separate Render socket server.
+    // NEXT_PUBLIC_SOCKET_URL must be set in Vercel env vars, e.g.:
+    //   https://road-rash-socket.onrender.com
+    // In local dev (same-origin custom server) leave it unset → connects to self.
+    const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || undefined;
+    const socket = io(socketUrl, {
+      path: '/socket.io',
+      transports: ['websocket', 'polling'],
+    });
     socketRef.current = socket;
 
     socket.on('connect', () => {

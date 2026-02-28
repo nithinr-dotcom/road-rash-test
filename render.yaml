@@ -1,0 +1,15 @@
+# Render deployment config for the Road Rash Socket.IO server.
+# Docs: https://render.com/docs/render-yaml-reference
+
+services:
+  - type: web
+    name: road-rash-socket
+    runtime: node
+    buildCommand: npm install
+    startCommand: node socket-server.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # Set ALLOWED_ORIGIN to your Vercel URL so CORS is locked down, e.g.:
+      # - key: ALLOWED_ORIGIN
+      #   value: https://road-rash-test.vercel.app
