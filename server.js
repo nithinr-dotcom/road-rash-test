@@ -75,6 +75,10 @@ app.prepare().then(() => {
       rooms.handleChat(socket, text);
     });
 
+    socket.on('dbg_ping', ({ t }) => {
+      socket.emit('dbg_pong', { t });
+    });
+
     socket.on('voice_join', () => {
       const roomId = socket._roomId;
       if (!roomId) return;

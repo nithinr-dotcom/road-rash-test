@@ -47,13 +47,35 @@ export default function MultiplayerGameScreen({ socket, playerName, onGameOver }
   const [voiceError, setVoiceError] = useState('');
   const [chatMessages, setChatMessages] = useState([]);
   const [chatText, setChatText] = useState('');
+  const [debugStats, setDebugStats] = useState({
+    pingMs: 0,
+    packetLossPct: 0,
+    updatesPerSec: 0,
+    driftX: 0,
+    driftZ: 0,
+  });
+  const [voicePeerStates, setVoicePeerStates] = useState({});
 
   // ── Buffer of server state snapshots for interpolation ─────────────────────
   // Map: playerId → Array<{ ts, x, z, speed, distance, input }>
   const stateBufferRef = useRef(new Map());
+  const netStatsRef = useRef({
+    startedAt: 0,
+    lastUpdateTs: 0,
+    received: 0,
+    missed: 0,
+    pings: new Map(),
+    pingSeq: 0,
+    driftX: 0,
+    driftZ: 0,
+  });
 
   function updateVoicePeerCount() {
     setVoicePeers(peerConnsRef.current.size);
+  }
+
+  function updateVoicePeerState(peerId, state) {
+    setVoicePeerStates((prev) => ({ ...prev, [peerId]: state }));
   }
 
   function pushChatMessage(msg) {
@@ -79,6 +101,11 @@ export default function MultiplayerGameScreen({ socket, playerName, onGameOver }
       audio.remove();
       audioElsRef.current.delete(peerId);
     }
+    setVoicePeerStates((prev) => {
+      const next = { ...prev };
+      delete next[peerId];
+      return next;
+    });
     updateVoicePeerCount();
   }
 
@@ -126,6 +153,7 @@ export default function MultiplayerGameScreen({ socket, playerName, onGameOver }
 
     pc.onconnectionstatechange = () => {
       const st = pc.connectionState;
+      updateVoicePeerState(peerId, st);
       if (st === 'failed' || st === 'disconnected' || st === 'closed') cleanupPeer(peerId);
     };
 
@@ -184,6 +212,14 @@ export default function MultiplayerGameScreen({ socket, playerName, onGameOver }
     const sock = socketRef.current;
     if (!sock) return;
     stateBufferRef.current.clear();
+    netStatsRef.current.startedAt = (typeof performance !== 'undefined' && performance.now)
+      ? performance.now()
+      : Date.now();
+    netStatsRef.current.lastUpdateTs = 0;
+    netStatsRef.current.received = 0;
+    netStatsRef.current.missed = 0;
+    netStatsRef.current.pings.clear();
+    netStatsRef.current.pingSeq = 0;
 
     // ── Mount Phaser ─────────────────────────────────────────────────────────
     const scene = new MultiScene({
@@ -215,6 +251,17 @@ export default function MultiplayerGameScreen({ socket, playerName, onGameOver }
       const recvTs = (typeof performance !== 'undefined' && performance.now)
         ? performance.now()
         : Date.now();
+      const stats = netStatsRef.current;
+      if (stats.lastUpdateTs > 0) {
+        const gap = recvTs - stats.lastUpdateTs;
+        const expectedGap = 50; // 20Hz server tick
+        if (gap > expectedGap * 1.6) {
+          const missed = Math.max(0, Math.round(gap / expectedGap) - 1);
+          stats.missed += missed;
+        }
+      }
+      stats.lastUpdateTs = recvTs;
+      stats.received += 1;
       const activeIds = new Set(players.map((p) => p.id));
       for (const id of [...buf.keys()]) {
         if (!activeIds.has(id)) buf.delete(id);
@@ -308,6 +355,18 @@ export default function MultiplayerGameScreen({ socket, playerName, onGameOver }
       if (peerId) cleanupPeer(peerId);
     });
 
+    sock.on('dbg_pong', ({ t }) => {
+      if (typeof t !== 'number') return;
+      const nowTs = (typeof performance !== 'undefined' && performance.now)
+        ? performance.now()
+        : Date.now();
+      const sentAt = netStatsRef.current.pings.get(t);
+      if (typeof sentAt !== 'number') return;
+      netStatsRef.current.pings.delete(t);
+      const rtt = Math.max(0, nowTs - sentAt);
+      setDebugStats((prev) => ({ ...prev, pingMs: Math.round(rtt) }));
+    });
+
     // ── Input sender (20 Hz) ─────────────────────────────────────────────────
     inputTimerRef.current = setInterval(() => {
       const scene = game.scene.getScene('MultiScene');
@@ -323,8 +382,43 @@ export default function MultiplayerGameScreen({ socket, playerName, onGameOver }
       });
     }, INPUT_RATE_MS);
 
+    const pingTimer = setInterval(() => {
+      const stats = netStatsRef.current;
+      const seq = ++stats.pingSeq;
+      const nowTs = (typeof performance !== 'undefined' && performance.now)
+        ? performance.now()
+        : Date.now();
+      stats.pings.set(seq, nowTs);
+      sock.emit('dbg_ping', { t: seq });
+      // Keep map bounded.
+      if (stats.pings.size > 20) {
+        const keys = [...stats.pings.keys()].sort((a, b) => a - b);
+        for (let i = 0; i < keys.length - 20; i++) stats.pings.delete(keys[i]);
+      }
+    }, 2000);
+
+    const debugTimer = setInterval(() => {
+      const stats = netStatsRef.current;
+      const nowTs = (typeof performance !== 'undefined' && performance.now)
+        ? performance.now()
+        : Date.now();
+      const elapsedSec = Math.max(1, (nowTs - stats.startedAt) / 1000);
+      const total = stats.received + stats.missed;
+      const loss = total > 0 ? (stats.missed / total) * 100 : 0;
+      const ups = stats.received / elapsedSec;
+      setDebugStats((prev) => ({
+        ...prev,
+        packetLossPct: +loss.toFixed(1),
+        updatesPerSec: +ups.toFixed(1),
+        driftX: +stats.driftX.toFixed(3),
+        driftZ: +stats.driftZ.toFixed(1),
+      }));
+    }, 500);
+
     return () => {
       clearInterval(inputTimerRef.current);
+      clearInterval(pingTimer);
+      clearInterval(debugTimer);
       cleanupVoice();
       sock.off('state_update');
       sock.off('leaderboard_update');
@@ -337,6 +431,7 @@ export default function MultiplayerGameScreen({ socket, playerName, onGameOver }
       sock.off('voice_answer');
       sock.off('voice_ice');
       sock.off('voice_peer_left');
+      sock.off('dbg_pong');
       sock.disconnect();
       game.destroy(true);
     };
@@ -394,6 +489,26 @@ export default function MultiplayerGameScreen({ socket, playerName, onGameOver }
             }}
           />
           <button className="mp-chat-send" onClick={sendChat}>SEND</button>
+        </div>
+      </div>
+
+      <div className="mp-debug-panel">
+        <div className="mp-debug-title">NET DEBUG</div>
+        <div className="mp-debug-line">Ping: {debugStats.pingMs} ms</div>
+        <div className="mp-debug-line">Packet Loss: {debugStats.packetLossPct}%</div>
+        <div className="mp-debug-line">State UPS: {debugStats.updatesPerSec}</div>
+        <div className="mp-debug-line">Drift X: {debugStats.driftX}</div>
+        <div className="mp-debug-line">Drift Z: {debugStats.driftZ}</div>
+        <div className="mp-debug-line">Voice Peers: {voicePeers}</div>
+        <div className="mp-debug-peers">
+          {Object.entries(voicePeerStates).length === 0 && (
+            <div className="mp-debug-peer">no peer links</div>
+          )}
+          {Object.entries(voicePeerStates).map(([peerId, st]) => (
+            <div key={peerId} className="mp-debug-peer">
+              {peerId.slice(0, 6)}: {st}
+            </div>
+          ))}
         </div>
       </div>
 
@@ -476,6 +591,9 @@ class MultiScene extends MainScene {
           const dx = Math.abs(this.playerX - mine.x);
           const dzRaw = Math.abs(this.position - mine.z);
           const dz = Math.min(dzRaw, this.trackLen - dzRaw);
+          const stats = netStatsRef.current;
+          stats.driftX = MathUtils.lerp(stats.driftX || 0, dx, 0.18);
+          stats.driftZ = MathUtils.lerp(stats.driftZ || 0, dz, 0.18);
           if (dx > 0.35) this.playerX = MathUtils.lerp(this.playerX, mine.x, 0.22);
           if (dz > 320) this.position = this._lerpWrapped(this.position, mine.z, this.trackLen, 0.18);
           if (Math.abs(this.speed - mine.speed) > 3500) {
