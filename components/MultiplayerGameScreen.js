@@ -18,9 +18,16 @@ const GAME_W          = 1280;
 const GAME_H          = 720;
 const INPUT_RATE_MS   = 50;    // send input every 50 ms (20 Hz)
 const INTERP_DELAY_MS = 100;   // buffer 100 ms of server states for interpolation
-const RTC_CONFIG      = {
-  iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
-};
+const RTC_CONFIG      = (() => {
+  const iceServers = [{ urls: 'stun:stun.l.google.com:19302' }];
+  const turnUrl = process.env.NEXT_PUBLIC_TURN_URL;
+  const turnUser = process.env.NEXT_PUBLIC_TURN_USERNAME;
+  const turnCred = process.env.NEXT_PUBLIC_TURN_CREDENTIAL;
+  if (turnUrl && turnUser && turnCred) {
+    iceServers.push({ urls: turnUrl, username: turnUser, credential: turnCred });
+  }
+  return { iceServers };
+})();
 
 export default function MultiplayerGameScreen({ socket, playerName, onGameOver }) {
   const containerRef   = useRef(null);
@@ -126,6 +133,8 @@ export default function MultiplayerGameScreen({ socket, playerName, onGameOver }
   }
 
   async function createVoiceOffer(peerId, sock) {
+    // Deterministic offerer selection avoids glare when two users enable voice together.
+    if ((sock.id || '') > (peerId || '')) return;
     const pc = ensurePeer(peerId, sock);
     if (pc.signalingState !== 'stable') return;
     const offer = await pc.createOffer({ offerToReceiveAudio: true });
@@ -138,6 +147,14 @@ export default function MultiplayerGameScreen({ socket, playerName, onGameOver }
     const sock = socketRef.current;
     if (!sock) return;
     setVoiceError('');
+    if (!window.isSecureContext && window.location.hostname !== 'localhost') {
+      setVoiceError('Voice requires HTTPS (or localhost).');
+      return;
+    }
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setVoiceError('Microphone API unavailable in this browser.');
+      return;
+    }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -252,9 +269,9 @@ export default function MultiplayerGameScreen({ socket, playerName, onGameOver }
       }
     });
 
-    sock.on('voice_peer_joined', ({ peerId }) => {
-      // Existing peers wait for the new joiner to initiate offers.
-      if (!peerId || peerId === sock.id) return;
+    sock.on('voice_peer_joined', async ({ peerId }) => {
+      if (!peerId || peerId === sock.id || !localStreamRef.current) return;
+      try { await createVoiceOffer(peerId, sock); } catch (_) {}
       updateVoicePeerCount();
     });
 
@@ -456,15 +473,19 @@ class MultiScene extends MainScene {
       if (myId) {
         const mine = this._interpolate(this._stateBuffer.get(myId), nowMs);
         if (mine) {
-          this.playerX = MathUtils.lerp(this.playerX, mine.x, 0.55);
-          this.speed = MathUtils.lerp(this.speed, mine.speed, 0.55);
-          this.position = this._lerpWrapped(this.position, mine.z, this.trackLen, 0.55);
-          if (typeof mine.distance === 'number') {
-            this.distanceTravelled = mine.distance;
+          const dx = Math.abs(this.playerX - mine.x);
+          const dzRaw = Math.abs(this.position - mine.z);
+          const dz = Math.min(dzRaw, this.trackLen - dzRaw);
+          if (dx > 0.35) this.playerX = MathUtils.lerp(this.playerX, mine.x, 0.22);
+          if (dz > 320) this.position = this._lerpWrapped(this.position, mine.z, this.trackLen, 0.18);
+          if (Math.abs(this.speed - mine.speed) > 3500) {
+            this.speed = MathUtils.lerp(this.speed, mine.speed, 0.22);
           }
-          if (typeof mine.health === 'number') this.health = mine.health;
-          if (typeof mine.nitroActive === 'boolean') this.nitroActive = mine.nitroActive;
-          if (mine.fallen) this.speed = Math.min(this.speed, this.maxSpeed * 0.35);
+          if (typeof mine.distance === 'number') {
+            this.distanceTravelled = Math.max(this.distanceTravelled, mine.distance);
+          }
+          // Keep client-side collision health responsive; only trust server for elimination/fall flags.
+          if (mine.fallen) this.speed = Math.min(this.speed, this.maxSpeed * 0.3);
           if (mine.finished) this.crossedFinish = true;
           if (mine.eliminated) this.eliminatePlayer();
         }
