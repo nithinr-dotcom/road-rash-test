@@ -570,7 +570,6 @@ class MultiScene extends MainScene {
     this._netStatsRef  = mpConfig.netStatsRef ?? null;
     this._raceOver     = false;
     this._eliminationSent = false;
-    this._remoteNearMissSeenAt = new Map();
   }
 
   create() {
@@ -619,12 +618,16 @@ class MultiScene extends MainScene {
             stats.driftX = MathUtils.lerp(stats.driftX || 0, dx, 0.18);
             stats.driftZ = MathUtils.lerp(stats.driftZ || 0, dz, 0.18);
           }
-          this.playerX = MathUtils.lerp(this.playerX, mine.x, dx > 0.35 ? 0.22 : 0.06);
-          this.position = this._lerpWrapped(this.position, mine.z, this.trackLen, dz > 320 ? 0.18 : 0.05);
-          if (Math.abs(this.speed - mine.speed) > 3500) {
-            this.speed = MathUtils.lerp(this.speed, mine.speed, 0.22);
-          } else {
-            this.speed = MathUtils.lerp(this.speed, mine.speed, 0.05);
+          // Keep multiplayer feel manual: only reconcile gently unless very desynced.
+          if (dx > 1.2) {
+            this.playerX = MathUtils.lerp(this.playerX, mine.x, 0.5);
+          } else if (dx > 0.55) {
+            this.playerX = MathUtils.lerp(this.playerX, mine.x, 0.12);
+          }
+          if (dz > this.segLen * 4) {
+            this.position = this._lerpWrapped(this.position, mine.z, this.trackLen, 0.35);
+          } else if (dz > this.segLen * 1.5) {
+            this.position = this._lerpWrapped(this.position, mine.z, this.trackLen, 0.1);
           }
           if (typeof mine.distance === 'number') {
             this.distanceTravelled = Math.max(this.distanceTravelled, mine.distance);
@@ -636,8 +639,6 @@ class MultiScene extends MainScene {
         }
       }
     }
-
-    this._checkRemoteNearMisses();
   }
 
   onEliminated() {
@@ -648,31 +649,6 @@ class MultiScene extends MainScene {
 
   onNearMiss() {
     this._socket?.emit('near_miss');
-  }
-
-  _checkRemoteNearMisses() {
-    if (!this._remotePlayers.size) return;
-
-    const playerW = SPRITES.PLAYER_STRAIGHT.w * SPRITES.SCALE;
-    const nowMs = this.time.now;
-    const playerFrontZ = this.position + this.playerZ;
-
-    for (const [id, remote] of this._remotePlayers.entries()) {
-      if (!remote) continue;
-      const latGap = Math.abs(this.playerX - remote.x);
-      if (latGap > 0.55) continue;
-      if (MathUtils.overlap(this.playerX, playerW, remote.x, playerW, 0.8)) continue;
-
-      let dz = remote.z - playerFrontZ;
-      if (dz < 0) dz += this.trackLen;
-      if (dz < 0 || dz > this.segLen * 1.2) continue;
-      if (this.speed <= (remote.speed ?? 0) + 500) continue;
-
-      const seenAt = this._remoteNearMissSeenAt.get(id) ?? -999999;
-      if (nowMs - seenAt < 900) continue;
-      this._remoteNearMissSeenAt.set(id, nowMs);
-      this.registerNearMiss();
-    }
   }
 
   // Draw remote player ghosts AFTER the base renderFrame
