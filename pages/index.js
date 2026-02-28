@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import dynamic from 'next/dynamic';
-import MenuScreen from '../components/MenuScreen';
+import LandingPage from '../components/LandingPage';
+import SinglePlayerSetup from '../components/SinglePlayerSetup';
 import ModeSelect from '../components/ModeSelect';
 
 const GAME_W = 1280;
@@ -16,7 +17,7 @@ const MultiplayerGameScreen = dynamic(() => import('../components/MultiplayerGam
 //                → mp_lobby → mp_game → gameover
 
 export default function Home() {
-  const [screen, setScreen] = useState('menu');
+  const [screen, setScreen] = useState('landing');
   const [scale,  setScale]  = useState(1);
 
   // Multiplayer session — socket and name passed from lobby to game
@@ -41,14 +42,22 @@ export default function Home() {
     <div className="viewport-wrapper">
       <div className="app-root" style={{ transform: `scale(${scale})` }}>
 
-        {screen === 'menu' && (
-          <MenuScreen onStart={() => setScreen('mode')} />
+        {screen === 'landing' && (
+          <LandingPage onStart={() => setScreen('mode')} />
         )}
 
         {screen === 'mode' && (
           <ModeSelect
-            onSinglePlayer={() => setScreen('sp_game')}
+            onSinglePlayer={() => setScreen('sp_setup')}
             onMultiplayer={()  => setScreen('mp_lobby')}
+            onBack={() => setScreen('landing')}
+          />
+        )}
+
+        {screen === 'sp_setup' && (
+          <SinglePlayerSetup
+            onStart={() => setScreen('sp_game')}
+            onBack={() => setScreen('mode')}
           />
         )}
 
@@ -74,8 +83,8 @@ export default function Home() {
         {screen === 'gameover' && (
           <div className="gameover-screen">
             <h1>GAME OVER</h1>
-            <button onClick={() => setScreen('menu')}>MENU</button>
-            <button onClick={() => setScreen('sp_game')}>PLAY AGAIN (SP)</button>
+            <button onClick={() => setScreen('landing')}>HOME</button>
+            <button onClick={() => setScreen('sp_setup')}>PLAY AGAIN (SP)</button>
             <button onClick={() => setScreen('mp_lobby')}>PLAY AGAIN (MP)</button>
           </div>
         )}
